@@ -33,6 +33,8 @@
 #define NMEA_OFF "#NMO"
 #define FREEBOARD_OFF "#FBO"
 
+#define SERIAL_MUX_PIN 7
+
 volatile boolean execute = false;
 volatile int interval = 0;
 float q[4];
@@ -78,8 +80,6 @@ void calculate() {
 
 void setup() {
 	inputSerial.reserve(40);
-  Serial.begin(38400);
-  //Serial.begin(115200);
   Wire.begin();
   
   my3IMU.init(true);
@@ -89,6 +89,25 @@ void setup() {
   FlexiTimer2::start();
   // LED
   pinMode(13, OUTPUT);
+
+	// setup serial
+	pinMode(SERIAL_MUX_PIN,OUTPUT); //Serial Mux
+	digitalWrite(SERIAL_MUX_PIN,LOW); //Serial Mux
+
+	/* in case the super cap has drained */
+	Serial.begin(4800);
+	delay(300);
+	Serial.print("$PSRF100,1,38400,8,1,0*3D\r\n");
+	delay(300);
+	Serial.flush();
+
+	/* what we would expect */
+	Serial.begin(38400);
+	delay(300);
+	Serial.print("$PSRF100,1,38400,8,1,0*3D\r\n");
+	delay(300);
+	Serial.flush();
+
   mghList.reset();
 }
 
@@ -98,19 +117,28 @@ void setup() {
  time loop() runs, so using delay inside loop can delay
  response.  Multiple bytes of data may be available.
  */
+static char cbuffer[100] = {};
+static int clen = 0;
+
 void serialEvent() {
 	while (Serial.available()) {
 		// get the new byte:
 		char inChar = (char) Serial.read();
-		// add it to the inputString:
-		inputSerial += inChar;
+
+		cbuffer[clen++] = inChar;
+
 		if (inChar == '\n') {
-			//inputSerialComplete = true;
-			char carray[inputSerial.length() + 1]; //determine size of the array
-			inputSerial.toCharArray(carray, sizeof(carray));
-			process(carray, ',');
-			inputSerial = "";
-			//inputSerialComplete = false;
+			cbuffer[clen] = '\0';
+			if (true == freeboard_out)
+			{
+				process(cbuffer, ',');
+			}
+			else
+			{
+				Serial.print(cbuffer);
+			}
+			cbuffer[clen] = '\0';
+			clen = 0;
 		}
 
 	}
@@ -220,6 +248,7 @@ void process(char * s, char parser) {
                            freeboard_out=true;
                         }
                         if (strcmp(key, FREEBOARD_OFF) == 0) {
+							digitalWrite(SERIAL_MUX_PIN,HIGH); //Serial Mux 
                            freeboard_out=false;
                         }
                         if (strcmp(key, NMEA_ON) == 0) {
